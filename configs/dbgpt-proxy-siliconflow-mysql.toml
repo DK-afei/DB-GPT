@@ -28,7 +28,7 @@ persist_path = "pilot/data"
 # Model Configurations
 [models]
 [[models.llms]]
-name = "Qwen/Qwen2.5-Coder-32B-Instruct"
+name = "Qwen/Qwen3.5-27B"
 provider = "proxy/siliconflow"
 api_key = "${env:SILICONFLOW_API_KEY}"
 

@@ -1,0 +1,88 @@
+# DB-GPT 集成达梦数据库 Docker Compose 配置
+# 注意：需提前准备达梦镜像（推荐 xuxuclassmate/dameng 或官方 dm8 镜像）
+version: '3.10'
+
+services:
+  # 达梦数据库服务
+  dameng:
+    image: xuxuclassmate/dameng  # 达梦镜像（已预装DM8，默认密码SYSDBA/SYSDBA001）
+    container_name: dbgpt-dameng
+    privileged: true  # 达梦需要特权模式
+    environment:
+      # 达梦核心环境变量（根据镜像文档调整）
+      - DM_INI_ENCODING=UTF-8        # 字符集编码
+      - DM_SYSDBA_PASSWORD=SYSDBA001 # SYSDBA用户密码
+      - DM_PAGE_SIZE=16              # 页大小（可选，默认16K）
+      - DM_EXTENT_SIZE=32            # 区大小（可选，默认32）
+      - DM_CHARSET=1                 # 1=UTF8，0=GBK
+    ports:
+      - 5237:5236  # 达梦默认端口
+    volumes:
+      # 持久化达梦数据/日志/配置
+      - dameng-data:/dm8/data
+      - dameng-log:/dm8/log
+      - dameng-config:/dm8/config
+      # 初始化脚本挂载（如需启动时执行SQL）
+      - ./docker/examples/dameng-init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - dbgptnet
+    healthcheck:
+      # 健康检查：达梦服务是否就绪
+      test: ["CMD", "/dm8/bin/disql", "SYSDBA/SYSDBA001@localhost:5236", "-e", "SELECT 1;"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # DB-GPT Web服务（适配达梦）
+  webserver:
+    image: eosphorosai/dbgpt-openai:latest
+    # 先复制驱动到容器 → 安装 → 启动服务
+    command: >
+      sh -c "
+      pip install /tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl &&
+      dbgpt start webserver --config /app/configs/dbgpt-proxy-siliconflow-dameng.toml
+      "
+    environment:
+      # 达梦数据库连接参数
+      - DAMENG_HOST=dameng          # 容器名（同网络内直接访问）
+      - DAMENG_PORT=5236            # 达梦端口
+      - DAMENG_USER=SYSDBA          # 达梦默认管理员
+      - DAMENG_PASSWORD=SYSDBA001   # 达梦密码
+      - DAMENG_DATABASE=DBGPT       # 要连接的达梦库名（需提前创建）
+      # SiliconFlow API 密钥（原模板保留）
+      - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY}
+      # 日志级别
+      - DBGPT_LOG_LEVEL=DEBUG
+    volumes:
+      - ./dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl:/tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+      - ./configs:/app/configs      # 挂载自定义配置文件
+      - ./packages:/app/packages
+      - /data:/data
+      - /data/models:/app/models    # 模型目录挂载
+      - dbgpt-data:/app/pilot/data
+      - dbgpt-message:/app/pilot/message
+    depends_on:
+      dameng:
+        condition: service_healthy  # 等待达梦健康检查通过
+    ports:
+      - 5670:5670/tcp
+    restart: unless-stopped
+    networks:
+      - dbgptnet
+    ipc: host
+
+# 数据卷持久化
+volumes:
+  dameng-data:
+  dameng-log:
+  dameng-config:
+  dbgpt-data:
+  dbgpt-message:
+
+# 自定义网络（容器间互通）
+networks:
+  dbgptnet:
+    driver: bridge
+    name: dbgptnet

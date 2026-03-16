@@ -8,7 +8,7 @@ services:
       MYSQL_PASSWORD: 'password'
       MYSQL_ROOT_PASSWORD: 'aa123456'
     ports:
-      - 3306:3306
+      - 3307:3306
     volumes:
       - dbgpt-myql-db:/var/lib/mysql
       - ./docker/examples/my.cnf:/etc/my.cnf
@@ -19,7 +19,11 @@ services:
       - dbgptnet
   webserver:
     image: eosphorosai/dbgpt-openai:latest
-    command: dbgpt start webserver --config /app/configs/dbgpt-proxy-siliconflow-mysql.toml
+    command: >
+      sh -c "
+      pip install /tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl &&
+      dbgpt start webserver --config /app/configs/dbgpt-proxy-siliconflow-mysql.toml
+      "
     environment:
       - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY}
       - MYSQL_PASSWORD=aa123456
@@ -28,7 +32,9 @@ services:
       - MYSQL_DATABASE=dbgpt
       - MYSQL_USER=root
     volumes:
+      - ./dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl:/tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - ./configs:/app/configs
+      - ./packages:/app/packages
       - /data:/data
       # May be you can mount your models to container
       - /data/models:/app/models

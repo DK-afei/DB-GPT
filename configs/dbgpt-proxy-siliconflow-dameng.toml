@@ -1,0 +1,44 @@
+[system]
+# Load language from environment variable(It is set by the hook)
+language = "${env:DBGPT_LANG:-zh}"
+api_keys = []
+encrypt_key = "your_secret_key"
+
+# Server Configurations
+[service.web]
+host = "0.0.0.0"
+port = 5670
+
+[service.web.database]
+type = "dm"  
+host = "${env:DAMENG_HOST:-127.0.0.1}"
+port = "${env:DAMENG_PORT:-5236}"
+database = "${env:DAMENG_DATABASE:-DBGPT}"
+user = "${env:DAMENG_USER:-SYSDBA}"
+password = "${env:DAMENG_PASSWORD:-SYSDBA001}"
+connect_args = { charset = "utf8" }
+
+[service.model.worker]
+host = "127.0.0.1"
+
+[rag.storage]
+[rag.storage.vector]
+type = "chroma"
+persist_path = "pilot/data"
+
+# Model Configurations
+[models]
+[[models.llms]]
+name = "Qwen/Qwen3.5-27B"
+provider = "proxy/siliconflow"
+api_key = "${env:SILICONFLOW_API_KEY}"
+
+[[models.embeddings]]
+name = "BAAI/bge-m3"
+provider = "proxy/siliconflow"
+api_key = "${env:SILICONFLOW_API_KEY}"
+
+[[models.rerankers]]
+name = "BAAI/bge-reranker-v2-m3"
+provider = "proxy/siliconflow"
+api_key = "${env:SILICONFLOW_API_KEY}"
