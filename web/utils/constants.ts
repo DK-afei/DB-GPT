@@ -213,6 +213,11 @@ export function getModelIcon(modelId: string): string {
 }
 
 export const dbMapper: Record<DBType, { label: string; icon: string; desc: string }> = {
+  dm: {
+    label: 'Dameng',
+    icon: '/icons/oracle.png',
+    desc: 'Dameng (DM) is an enterprise relational database widely used in China.',
+  },
   mysql: {
     label: 'MySQL',
     icon: '/icons/mysql.png',
@@ -319,3 +324,14 @@ export const dbMapper: Record<DBType, { label: string; icon: string; desc: strin
     desc: 'Neo4j is a highly scalable native graph database, purpose-built to leverage data relationships.',
   },
 };
+
+export function getDbMeta(dbType?: DBType | string) {
+  const key = (dbType || '') as DBType;
+  return (
+    dbMapper[key] || {
+      label: String(dbType || 'Database'),
+      icon: '/icons/mysql.png',
+      desc: '',
+    }
+  );
+}

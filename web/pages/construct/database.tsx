@@ -4,7 +4,7 @@ import MuiLoading from '@/components/common/loading';
 import FormDialog from '@/components/database/form-dialog';
 import ConstructLayout from '@/new-components/layout/Construct';
 import { DBOption, DBType, DbListResponse, DbSupportTypeResponse } from '@/types/db';
-import { dbMapper } from '@/utils';
+import { dbMapper, getDbMeta } from '@/utils';
 import { DeleteFilled, EditFilled, PlusOutlined, RedoOutlined } from '@ant-design/icons';
 import { useAsyncEffect } from 'ahooks';
 import { Badge, Button, Card, Drawer, Empty, Modal, Spin, message } from 'antd';
@@ -55,13 +55,14 @@ function Database() {
   const dbTypeList = useMemo(() => {
     const supportDbList = dbSupportList.map(item => {
       const db_type = item?.name;
-      return { ...dbMapper[db_type], value: db_type, isFileDb: true, parameters: item.parameters };
+      const meta = getDbMeta(db_type);
+      return { ...meta, value: db_type, isFileDb: true, parameters: item.parameters };
     }) as DBOption[];
     const unSupportDbList = Object.keys(dbMapper)
       .filter(item => !supportDbList.some(db => db.value === item))
       .map(item => ({
-        ...dbMapper[item],
-        value: dbMapper[item].label,
+        ...getDbMeta(item),
+        value: getDbMeta(item).label,
         disabled: true,
       })) as DBOption[];
     return [...supportDbList, ...unSupportDbList];

@@ -2,7 +2,7 @@ import { ChatContext } from '@/app/chat-context';
 import { apiInterceptors, postChatModeParamsList } from '@/client/api';
 import DBIcon from '@/components/common/db-icon';
 import { IDB } from '@/types/chat';
-import { dbMapper } from '@/utils';
+import { getDbMeta } from '@/utils';
 import { useAsyncEffect } from 'ahooks';
 import { Select } from 'antd';
 import { useContext, useEffect, useMemo, useState } from 'react';
@@ -20,7 +20,8 @@ function DBSelector() {
   const dbOpts = useMemo(
     () =>
       dbs.map?.((db: IDB) => {
-        return { name: db.param, ...dbMapper[db.type] };
+        const meta = getDbMeta(db.type);
+        return { name: db.param, ...meta };
       }),
     [dbs],
   );

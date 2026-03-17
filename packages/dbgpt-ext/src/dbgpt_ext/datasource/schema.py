@@ -18,6 +18,7 @@ class DBType(Enum):
     """Database type enumeration."""
 
     MySQL = DbInfo("mysql")
+    DM = DbInfo("dm")
     OceanBase = DbInfo("oceanbase")
     DuckDb = DbInfo("duckdb", True)
     SQLite = DbInfo("sqlite", True)

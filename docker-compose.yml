@@ -1,6 +1,32 @@
 # To run current docker compose file, you should prepare the silliconflow api key in your environment.
 # SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY} docker compose up -d
 services:
+  # Optional: Dameng(DM8) database for business datasource tests
+  # After starting, when creating a DM datasource in DB-GPT UI/API, use:
+  #   host: dameng
+  #   port: 5236
+  dameng:
+    image: xuxuclassmate/dameng
+    container_name: dbgpt-dameng
+    privileged: true
+    environment:
+      - DM_INI_ENCODING=UTF-8
+      - DM_SYSDBA_PASSWORD=SYSDBA001
+      - DM_PAGE_SIZE=16
+      - DM_EXTENT_SIZE=32
+      - DM_CHARSET=1
+    ports:
+      - 5237:5236
+    restart: unless-stopped
+    networks:
+      - dbgptnet
+    healthcheck:
+      test: ["CMD", "/dm8/bin/disql", "SYSDBA/SYSDBA001@localhost:5236", "-e", "SELECT 1;"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   db:
     image: mysql/mysql-server
     environment:
@@ -17,11 +43,19 @@ services:
     restart: unless-stopped
     networks:
       - dbgptnet
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
   webserver:
-    image: eosphorosai/dbgpt-openai:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.webserver-dm
+    image: dbgpt-openai-dm:local
     command: >
       sh -c "
-      pip install /tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl &&
       dbgpt start webserver --config /app/configs/dbgpt-proxy-siliconflow-mysql.toml
       "
     environment:
@@ -32,7 +66,6 @@ services:
       - MYSQL_DATABASE=dbgpt
       - MYSQL_USER=root
     volumes:
-      - ./dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl:/tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - ./configs:/app/configs
       - ./packages:/app/packages
       - /data:/data
@@ -41,7 +74,8 @@ services:
       - dbgpt-data:/app/pilot/data
       - dbgpt-message:/app/pilot/message
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - 5670:5670/tcp
     # webserver may be failed, it must wait all sqls in /docker-entrypoint-initdb.d execute finish.

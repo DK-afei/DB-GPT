@@ -1,0 +1,35 @@
+FROM eosphorosai/dbgpt-openai:latest
+
+# Use China mirrors for faster apt on Ubuntu (jammy).
+# Note: some environments may get 403 from certain mirrors; we keep a fallback below.
+ARG UBUNTU_MIRROR="http://mirrors.aliyun.com/ubuntu/"
+RUN if [ -f /etc/apt/sources.list ]; then \
+      sed -i "s@http://archive.ubuntu.com/ubuntu/@${UBUNTU_MIRROR}@g" /etc/apt/sources.list && \
+      sed -i "s@http://security.ubuntu.com/ubuntu/@${UBUNTU_MIRROR}@g" /etc/apt/sources.list && \
+      sed -i "s@https://archive.ubuntu.com/ubuntu/@${UBUNTU_MIRROR}@g" /etc/apt/sources.list && \
+      sed -i "s@https://security.ubuntu.com/ubuntu/@${UBUNTU_MIRROR}@g" /etc/apt/sources.list; \
+    fi
+
+# Install dmPython runtime dependencies once (avoid apt-get on every container start)
+RUN if command -v apt-get >/dev/null 2>&1; then \
+      set -eux; \
+      (apt-get update && apt-get install -y --no-install-recommends openssl libssl-dev libaio1) || ( \
+        echo "Apt install failed, fallback to official Ubuntu mirrors..." && \
+        if [ -f /etc/apt/sources.list ]; then \
+          sed -i "s@${UBUNTU_MIRROR}@http://archive.ubuntu.com/ubuntu/@g" /etc/apt/sources.list && \
+          sed -i "s@${UBUNTU_MIRROR}@http://security.ubuntu.com/ubuntu/@g" /etc/apt/sources.list; \
+        fi && \
+        apt-get clean && rm -rf /var/lib/apt/lists/* && \
+        apt-get update && apt-get install -y --no-install-recommends openssl libssl-dev libaio1 \
+      ); \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Bake dmPython wheel into image to avoid pip install at runtime
+# Dockerfile.webserver-dm
+
+COPY dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl /tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+RUN pip install /tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl && \
+    rm -f /tmp/dmpython-2.5.30-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+
+

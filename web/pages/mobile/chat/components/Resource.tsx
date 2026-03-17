@@ -1,6 +1,6 @@
 import { apiInterceptors, postChatModeParamsFileLoad } from '@/client/api';
 import { ChatContentContext } from '@/pages/chat';
-import { dbMapper } from '@/utils';
+import { dbMapper, getDbMeta } from '@/utils';
 import { FolderAddOutlined, LoadingOutlined, SwapOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import type { MenuProps } from 'antd';
@@ -24,6 +24,7 @@ const Resource: React.FC = () => {
   const items: MenuProps['items'] = useMemo(() => {
     if (resourceList && resourceList.length > 0) {
       return resourceList.map(item => {
+        const meta = getDbMeta(item.type);
         return {
           label: (
             <div
@@ -33,7 +34,7 @@ const Resource: React.FC = () => {
                 setResource(item.space_id || item.param);
               }}
             >
-              <OptionIcon width={14} height={14} src={dbMapper[item.type].icon} label={dbMapper[item.type].label} />
+              <OptionIcon width={14} height={14} src={meta.icon} label={meta.label} />
               <span className='text-xs'>{item.param}</span>
             </div>
           ),
@@ -143,8 +144,8 @@ const Resource: React.FC = () => {
               <OptionIcon
                 width={14}
                 height={14}
-                src={dbMapper[selectedVal?.type || resourceList?.[0]?.type]?.icon}
-                label={dbMapper[selectedVal?.type || resourceList?.[0]?.type]?.label}
+                src={getDbMeta(selectedVal?.type || resourceList?.[0]?.type).icon}
+                label={getDbMeta(selectedVal?.type || resourceList?.[0]?.type).label}
               />
               <span className='text-xs font-medium'>{selectedVal?.param || resourceList?.[0]?.param}</span>
               <SwapOutlined rotate={90} />

@@ -2,7 +2,7 @@ import { apiInterceptors, postChatModeParamsFileLoad, postChatModeParamsList } f
 import DBIcon from '@/components/common/db-icon';
 import { ChatContentContext } from '@/pages/chat';
 import { IDB } from '@/types/chat';
-import { dbMapper } from '@/utils';
+import { getDbMeta } from '@/utils';
 import { ExperimentOutlined, FolderAddOutlined } from '@ant-design/icons';
 import { useAsyncEffect, useRequest } from 'ahooks';
 import type { UploadFile } from 'antd';
@@ -68,14 +68,15 @@ const Resource: React.FC<{
   const dbOpts = useMemo(
     () =>
       dbs.map?.((db: IDB) => {
+        const meta = getDbMeta(db.type);
         return {
           label: (
             <>
               <DBIcon
                 width={24}
                 height={24}
-                src={dbMapper[db.type].icon}
-                label={dbMapper[db.type].label}
+                src={meta.icon}
+                label={meta.label}
                 className='w-[1.5em] h-[1.5em] mr-1 inline-block mt-[-4px]'
               />
               {db.param}

@@ -11,6 +11,7 @@ export type DBOption = {
 };
 
 export type DBType =
+  | 'dm'
   | 'mysql'
   | 'duckdb'
   | 'sqlite'
