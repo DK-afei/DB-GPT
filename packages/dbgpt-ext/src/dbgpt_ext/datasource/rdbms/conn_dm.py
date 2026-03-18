@@ -178,9 +178,40 @@ class DMConnector(BaseConnector):
 
         return cls(conn, database=parameters.database)
 
+    @classmethod
+    def from_uri_db(
+        cls,
+        host: str,
+        port: int,
+        user: str,
+        pwd: str,
+        db_name: str,
+        engine_args: Optional[dict] = None,
+        **kwargs: Any,
+    ) -> "DMConnector":
+        """Compatibility helper used by ConnectorManager.get_connector.
+
+        Other RDBMS connectors expose a from_uri_db classmethod, so we provide
+        the same signature here and internally delegate to from_parameters.
+        """
+        params = DMParameters(
+            host=host,
+            port=port,
+            user=user,
+            password=pwd,
+            database=db_name or "",
+            connect_args=engine_args or {},
+        )
+        return cls.from_parameters(params)
+
     @property
     def db_url(self) -> str:
         return "dm://"
+
+    @property
+    def dialect(self) -> str:
+        """Return string representation of dialect to use."""
+        return "dm"
 
     def close(self):
         try:
@@ -426,4 +457,67 @@ class DMConnector(BaseConnector):
                 lines.append(line)
             chunks.append(f"CREATE TABLE {t} (\n" + ",\n".join(lines) + "\n);")
         return "\n\n".join(chunks)
+
+    def get_indexes(self, table_name: str) -> List[Dict]:
+        """Get index information for a table.
+
+        Args:
+            table_name (str): table name
+
+        Returns:
+            List[Dict], eg:[{'name': 'idx_key', 'column_names': ['id']}]
+        """
+        tn = table_name.upper()
+        indexes: List[Dict] = []
+
+        # Query index information from USER_INDEXES
+        sql = f"""
+            SELECT i.index_name, i.uniqueness
+              FROM user_indexes i
+             WHERE i.table_name = '{tn}'
+        """
+
+        cur = None
+        try:
+            cur = self._execute(sql)
+            index_rows = cur.fetchall()
+
+            # For each index, get the columns
+            for index_name, uniqueness in index_rows:
+                columns_sql = f"""
+                    SELECT column_name
+                      FROM user_ind_columns
+                     WHERE index_name = '{index_name}'
+                     ORDER BY column_position
+                """
+                col_cur = self._execute(columns_sql)
+                column_names = [str(_decode_if_bytes(r[0])) for r in col_cur.fetchall()]
+
+                indexes.append({
+                    'name': str(index_name),
+                    'column_names': column_names,
+                    'unique': str(uniqueness).upper() == 'UNIQUE'
+                })
+        finally:
+            if cur:
+                cur.close()
+            # Note: col_cur is a local variable inside the loop, it will be closed automatically when the loop iteration ends
+
+        return indexes
+
+    def run_to_df(self, command: str, fetch: str = "all"):
+        """Execute sql command and return result as dataframe."""
+        import pandas as pd
+
+        # Use the existing run method to get results
+        result_lst = self.run(command, fetch)
+        if not result_lst:
+            return pd.DataFrame()
+
+        # First row contains column names
+        columns = result_lst[0]
+        # Subsequent rows contain data
+        values = result_lst[1:]
+
+        return pd.DataFrame(values, columns=columns)
 
