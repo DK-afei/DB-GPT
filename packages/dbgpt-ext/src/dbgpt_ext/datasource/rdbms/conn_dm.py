@@ -187,22 +187,83 @@ class DMConnector(BaseConnector):
         pwd: str,
         db_name: str,
         engine_args: Optional[dict] = None,
+        schema: Optional[str] = None,
         **kwargs: Any,
     ) -> "DMConnector":
-        """Compatibility helper used by ConnectorManager.get_connector.
+        """Create DMConnector from host/port/user/pwd/db_name.
 
-        Other RDBMS connectors expose a from_uri_db classmethod, so we provide
-        the same signature here and internally delegate to from_parameters.
+        Notes:
+        - DB-GPT's ConnectorManager will call this method for URL-style datasources.
+        - `schema` is passed via ext_config in some flows; for DM we treat it as the
+          default schema if provided.
+        - `engine_args` is ignored (kept for signature compatibility).
         """
-        params = DMParameters(
-            host=host,
-            port=port,
-            user=user,
-            password=pwd,
-            database=db_name or "",
-            connect_args=engine_args or {},
-        )
-        return cls.from_parameters(params)
+        try:
+            import dmPython  # type: ignore
+        except Exception as e:  # pragma: no cover
+            raise ImportError(
+                "dmPython is required for DM datasource. Please `pip install dmPython`."
+            ) from e
+
+        conn = None
+        last_err: Optional[Exception] = None
+
+        # Allow passing extra dmPython kwargs through `connect_args` in kwargs.
+        connect_args = kwargs.get("connect_args") or {}
+        if isinstance(connect_args, str):
+            try:
+                connect_args = json.loads(connect_args)
+            except Exception:
+                connect_args = {}
+        if not isinstance(connect_args, dict):
+            connect_args = {}
+
+        for attempt in (
+            lambda: dmPython.connect(  # type: ignore[attr-defined]
+                user=user,
+                password=pwd,
+                server=host,
+                port=port,
+                **connect_args,
+            ),
+            lambda: dmPython.connect(  # type: ignore[attr-defined]
+                user=user,
+                password=pwd,
+                host=host,
+                port=port,
+                **connect_args,
+            ),
+            lambda: dmPython.connect(  # type: ignore[attr-defined]
+                f"{user}/{pwd}@{host}:{port}",
+                **connect_args,
+            ),
+        ):
+            try:
+                conn = attempt()
+                break
+            except Exception as e:  # pragma: no cover
+                last_err = e
+                conn = None
+
+        if conn is None:  # pragma: no cover
+            raise ConnectionError(f"Failed to connect to DM: {last_err}") from last_err
+
+        try:
+            conn.autocommit = True  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        # Prefer explicit schema; fallback to db_name when it looks like a schema.
+        default_schema = schema or db_name
+        if default_schema:
+            try:
+                cur = conn.cursor()
+                cur.execute(f"SET SCHEMA {default_schema}")
+                cur.close()
+            except Exception:
+                logger.debug("DM: failed to SET SCHEMA in from_uri_db().")
+
+        return cls(conn, database=default_schema)
 
     @property
     def db_url(self) -> str:
@@ -210,7 +271,9 @@ class DMConnector(BaseConnector):
 
     @property
     def dialect(self) -> str:
-        """Return string representation of dialect to use."""
+        """Dialect name used for prompt/SQL generation."""
+        # DM is largely Oracle-compatible at SQL dialect level.
+        # return "oracle"
         return "dm"
 
     def close(self):
@@ -255,6 +318,21 @@ class DMConnector(BaseConnector):
                 cur.close()
             except Exception:
                 pass
+
+    def run_to_df(self, command: str, fetch: str = "all"):
+        """Execute SQL and return a pandas DataFrame.
+
+        Some chat-db flows (auto_execute out_parser) require this method to generate
+        view/chart payloads.
+        """
+        import pandas as pd
+
+        result = self.run(command, fetch=fetch)
+        if not result:
+            return pd.DataFrame()
+        columns = list(result[0]) if result and isinstance(result[0], (list, tuple)) else []
+        rows = result[1:] if len(result) > 1 else []
+        return pd.DataFrame(rows, columns=columns)
 
     def get_current_db_name(self) -> str:
         return self._database or self.user_schema()
@@ -365,6 +443,46 @@ class DMConnector(BaseConnector):
             )
         return cols
 
+    def get_indexes(self, table_name: str) -> List[Dict]:
+        """Return indexes for a table.
+
+        DB-GPT expects a list of dicts like:
+        [{"name": "...", "column_names": ["c1","c2"], "unique": bool}, ...]
+        """
+        tn = table_name.upper()
+        sql = f"""
+            SELECT ic.index_name,
+                   ic.column_name,
+                   ix.uniqueness
+              FROM user_ind_columns ic
+              JOIN user_indexes ix
+                ON ic.index_name = ix.index_name
+             WHERE ic.table_name = '{tn}'
+             ORDER BY ic.index_name, ic.column_position
+        """
+        cur = self._execute(sql)
+        try:
+            rows = cur.fetchall()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+        idx: Dict[str, Dict] = {}
+        for index_name, column_name, uniqueness in rows:
+            index_name = str(_decode_if_bytes(index_name))
+            column_name = str(_decode_if_bytes(column_name))
+            uniq = str(_decode_if_bytes(uniqueness or "")).upper() == "UNIQUE"
+            if index_name not in idx:
+                idx[index_name] = {
+                    "name": index_name,
+                    "column_names": [],
+                    "unique": uniq,
+                }
+            idx[index_name]["column_names"].append(column_name)
+        return list(idx.values())
+
     def get_table_comment(self, table_name: str) -> Dict:
         tn = table_name.upper()
         cur = self._execute(
@@ -457,67 +575,4 @@ class DMConnector(BaseConnector):
                 lines.append(line)
             chunks.append(f"CREATE TABLE {t} (\n" + ",\n".join(lines) + "\n);")
         return "\n\n".join(chunks)
-
-    def get_indexes(self, table_name: str) -> List[Dict]:
-        """Get index information for a table.
-
-        Args:
-            table_name (str): table name
-
-        Returns:
-            List[Dict], eg:[{'name': 'idx_key', 'column_names': ['id']}]
-        """
-        tn = table_name.upper()
-        indexes: List[Dict] = []
-
-        # Query index information from USER_INDEXES
-        sql = f"""
-            SELECT i.index_name, i.uniqueness
-              FROM user_indexes i
-             WHERE i.table_name = '{tn}'
-        """
-
-        cur = None
-        try:
-            cur = self._execute(sql)
-            index_rows = cur.fetchall()
-
-            # For each index, get the columns
-            for index_name, uniqueness in index_rows:
-                columns_sql = f"""
-                    SELECT column_name
-                      FROM user_ind_columns
-                     WHERE index_name = '{index_name}'
-                     ORDER BY column_position
-                """
-                col_cur = self._execute(columns_sql)
-                column_names = [str(_decode_if_bytes(r[0])) for r in col_cur.fetchall()]
-
-                indexes.append({
-                    'name': str(index_name),
-                    'column_names': column_names,
-                    'unique': str(uniqueness).upper() == 'UNIQUE'
-                })
-        finally:
-            if cur:
-                cur.close()
-            # Note: col_cur is a local variable inside the loop, it will be closed automatically when the loop iteration ends
-
-        return indexes
-
-    def run_to_df(self, command: str, fetch: str = "all"):
-        """Execute sql command and return result as dataframe."""
-        import pandas as pd
-
-        # Use the existing run method to get results
-        result_lst = self.run(command, fetch)
-        if not result_lst:
-            return pd.DataFrame()
-
-        # First row contains column names
-        columns = result_lst[0]
-        # Subsequent rows contain data
-        values = result_lst[1:]
-
-        return pd.DataFrame(values, columns=columns)
 
