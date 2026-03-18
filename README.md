@@ -157,6 +157,21 @@ The core capabilities include the following parts:
   - [Finetune](http://docs.dbgpt.cn/docs/application/fine_tuning_manual/dbgpt_hub)
   - [AWEL](http://docs.dbgpt.cn/docs/awel/tutorial)
 
+### Dameng (DM) Database Support (DK-afei)
+
+- **Purpose**: Based on the upstream DB-GPT, this fork adds support for using Dameng (DM) as a business data source while still using MySQL to store metadata.
+- **Backend Enhancements**:
+  - Added DM database type and implemented `DMConnector` under `packages/dbgpt-ext/src/dbgpt_ext/datasource/rdbms/conn_dm.py`, including metadata queries (`get_indexes`, `run_to_df`, etc.) to support DB Summary / ChatDB / Dashboard scenarios.
+  - Registered the DM connector in the datasource manager so that DM instances can be created and selected on the datasources page.
+- **Docker & Runtime**:
+  - Added/updated `docker-compose.yml` to optionally start a Dameng container and a `webserver` image built from `Dockerfile.webserver-dm`, which pre-installs `dmPython` and required system libraries (`openssl`, `libssl-dev`, `libaio1`) and optimizes `apt` mirrors for better network performance.
+  - When using this fork, you can start the environment (including optional Dameng) via `docker compose up -d`, then configure the DM connection information on the datasource management page.
+- **Frontend Adaptation**:
+  - Updated web components to recognize the `dm` database type, add a DM entry in the datasource mapping, and safely display icons/labels using a fallback mechanism to avoid client-side crashes when the DM type is missing.
+  - Optimized the Next.js static build process (light build mode, reduced `NODE_OPTIONS`) to ensure the frontend can be compiled successfully in limited-memory environments.
+
+> Note: These DM-related features are specific to this customized branch. For general installation and usage, please continue to follow the official documentation linked above.
+
 
 ## Features
 
